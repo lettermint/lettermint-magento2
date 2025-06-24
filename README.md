@@ -1,7 +1,7 @@
 # Lettermint Magento 2 Module
 
-[![Latest Version on Packagist](https://img.shields.io/packagist/v/lettermint/magento2-lettermint.svg?style=flat-square)](https://packagist.org/packages/lettermint/magento2-lettermint)
-[![Total Downloads](https://img.shields.io/packagist/dt/lettermint/magento2-lettermint.svg?style=flat-square)](https://packagist.org/packages/lettermint/magento2-lettermint)
+[![Latest Version on Packagist](https://img.shields.io/packagist/v/lettermint/lettermint-magento2.svg?style=flat-square)](https://packagist.org/packages/lettermint/lettermint-magento2)
+[![Total Downloads](https://img.shields.io/packagist/dt/lettermint/lettermint-magento2.svg?style=flat-square)](https://packagist.org/packages/lettermint/lettermint-magento2)
 
 Integrate Lettermint email service with your Magento 2 store for reliable transactional and marketing email delivery.
 
@@ -16,7 +16,7 @@ Integrate Lettermint email service with your Magento 2 store for reliable transa
 Install the module via Composer:
 
 ```bash
-composer require lettermint/magento2-lettermint
+composer require lettermint/lettermint-magento2
 php bin/magento module:enable Lettermint_Email
 php bin/magento setup:upgrade
 php bin/magento setup:di:compile
