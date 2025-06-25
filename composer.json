@@ -1,13 +1,12 @@
 {
-    "name": "lettermint/lettermint-magento2",
+    "name": "lettermint/magento2-lettermint",
     "description": "Lettermint Email Integration for Magento 2",
     "type": "magento2-module",
-    "version": "0.1.0",
     "license": "MIT",
     "authors": [
         {
             "name": "Bjarn Bronsveld",
-            "email": "bjarn@lettermint.co"
+            "email": "bjarn@lettermint.com"
         }
     ],
     "require": {
