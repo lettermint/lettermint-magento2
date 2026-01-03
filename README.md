@@ -2,6 +2,7 @@
 
 [![Latest Version on Packagist](https://img.shields.io/packagist/v/lettermint/lettermint-magento2.svg?style=flat-square)](https://packagist.org/packages/lettermint/lettermint-magento2)
 [![Total Downloads](https://img.shields.io/packagist/dt/lettermint/lettermint-magento2.svg?style=flat-square)](https://packagist.org/packages/lettermint/lettermint-magento2)
+[![Join our Discord server](https://img.shields.io/discord/1305510095588819035?logo=discord&logoColor=eee&label=Discord&labelColor=464ce5&color=0D0E28&cacheSeconds=43200)](https://lettermint.co/r/discord)
 
 Integrate Lettermint email service with your Magento 2 store for reliable transactional and marketing email delivery.
 
