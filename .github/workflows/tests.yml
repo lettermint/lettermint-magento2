@@ -73,7 +73,7 @@ jobs:
           --with 'magento/framework:${{ matrix.framework }}'
 
       - name: Installed versions
-        run: composer show magento/framework lettermint/lettermint-php guzzlehttp/guzzle phpunit/phpunit
+        run: composer show | grep -E '^(magento/framework|lettermint/lettermint-php|guzzlehttp/guzzle|laminas/laminas-mime|symfony/mime|monolog/monolog|phpunit/phpunit) '
 
       - name: Lint PHP files
         run: composer lint
