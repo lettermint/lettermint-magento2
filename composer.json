@@ -1,5 +1,5 @@
 {
-    "name": "lettermint/magento2-lettermint",
+    "name": "lettermint/lettermint-magento2",
     "description": "Lettermint Email Integration for Magento 2",
     "type": "magento2-module",
     "license": "MIT",
