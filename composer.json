@@ -14,6 +14,10 @@
         "magento/framework": ">=103.0",
         "lettermint/lettermint-php": "^3.0"
     },
+    "require-dev": {
+        "phpstan/phpstan": "^2.1",
+        "phpunit/phpunit": "^11.5"
+    },
     "autoload": {
         "files": [
             "registration.php"
@@ -21,5 +25,25 @@
         "psr-4": {
             "Lettermint\\Email\\": ""
         }
+    },
+    "repositories": [
+        {
+            "type": "composer",
+            "url": "https://mirror.mage-os.org/",
+            "only": [
+                "magento/*"
+            ]
+        }
+    ],
+    "config": {
+        "sort-packages": true,
+        "allow-plugins": {
+            "magento/composer-dependency-version-audit-plugin": false
+        }
+    },
+    "scripts": {
+        "lint": "find . -path ./vendor -prune -o -name '*.php' -print0 | xargs -0 -n1 php -l",
+        "test": "phpunit",
+        "analyse": "phpstan analyse --memory-limit=1G"
     }
 }

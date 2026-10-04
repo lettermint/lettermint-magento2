@@ -1,0 +1,31 @@
+parameters:
+	ignoreErrors:
+		-
+			message: '#^Class Laminas\\Mime\\Message not found\.$#'
+			identifier: class.notFound
+			count: 1
+			path: Service/EmailContentExtractor.php
+
+		-
+			message: '#^Instanceof between string and Laminas\\Mime\\Message will always evaluate to false\.$#'
+			identifier: instanceof.alwaysFalse
+			count: 1
+			path: Service/EmailContentExtractor.php
+
+		-
+			message: '#^Instanceof between string and Symfony\\Component\\Mime\\Part\\TextPart will always evaluate to false\.$#'
+			identifier: instanceof.alwaysFalse
+			count: 1
+			path: Service/EmailContentExtractor.php
+
+		-
+			message: '#^Offset ''text/html'' on array\{''text/html''\: '''', ''text/plain''\: string\} in empty\(\) always exists and is always falsy\.$#'
+			identifier: empty.offset
+			count: 1
+			path: Service/EmailContentExtractor.php
+
+		-
+			message: '#^Ternary operator condition is always false\.$#'
+			identifier: ternary.alwaysFalse
+			count: 1
+			path: Service/EmailContentExtractor.php
