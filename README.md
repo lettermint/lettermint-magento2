@@ -67,7 +67,35 @@ When the module is enabled, a plugin on Magento's transport factory gives every 
 Magento email → TransportSwitcher plugin → Lettermint transport → Lettermint API (route)
 ```
 
-If Lettermint rejects an email or cannot be reached within 15 seconds, the error is logged to Magento's log and Magento receives a `MailException`. The module does not retry.
+### Attachments and headers
+
+Attachments are sent to Lettermint with the email, on every supported Magento version:
+
+- Magento 2.4.6 and 2.4.7: attachment parts on the Laminas MIME message (Magento `MimePart` or Laminas `Part`), including nested `multipart/alternative` bodies.
+- Magento 2.4.8 and newer: the Symfony MIME body, for example `multipart/mixed` with a `multipart/alternative` body and `DataPart` attachments.
+
+Inline images keep their Content-ID, so `cid:` references in the HTML keep working. An attachment without a file name is sent as `attachment-<n>` with an extension for common types. Lettermint's [attachment limits](https://docs.lettermint.co/platform/emails/limitations) apply (25 MB per email, blocked file types).
+
+Custom headers are forwarded: `X-*` headers and `List-*`, `Precedence`, `Auto-Submitted`, `Importance` and `Priority`. Lettermint sets the structural headers (From, To, Subject, Date, Message-ID, MIME and Content headers) itself. Lettermint's own control headers (`X-Lettermint-*`, `X-LM-*`) and headers whose name looks like a credential (for example containing `auth`, `token`, `secret` or `api-key`) are never forwarded.
+
+### Errors
+
+If Lettermint rejects an email, cannot be reached within 15 seconds, or the email cannot be read, the error is logged to Magento's log and Magento receives a `MailException`. The module does not retry.
+
+### Retries and duplicate emails
+
+The module does not send an `Idempotency-Key`, so Lettermint cannot detect a repeated send.
+
+A duplicate is possible in one case: Lettermint accepted the email, but the response did not reach Magento in time, for example after a timeout. Magento then treats the email as failed. With asynchronous sales email sending (**Stores → Configuration → Sales → Sales Emails → General Settings → Asynchronous sending**), the cron sends it again on the next run. Magento 2.4.8 and newer stop after `sales_email/general/async_sending_attempts` attempts (3 by default); 2.4.6 and 2.4.7 retry on every run until the email is sent.
+
+An idempotency key would only help if it stayed the same for Magento's retry of an email but differed for every email a store sends on purpose. Magento's mail transport does not provide such a value:
+
+- Magento does not set a Message-ID before sending. On 2.4.8+, Symfony generates a random one when the email is serialised, so a retried email gets a new one.
+- A retry builds a new message, so there is no message object to carry a key from one attempt to the next.
+- The order, invoice or shipment ID is the same for a retry and for an intentional resend, such as **Send Email** on an order in the admin. Lettermint keeps a key for 24 hours and returns the first result for the same key and body, so a key based on the entity would silently drop such a resend.
+- A hash of the content would also drop intentionally repeated identical emails, such as two identical notifications.
+
+So the module sends each email as a new request. If you see duplicates, check Magento's log for Lettermint timeouts.
 
 ## Security
 

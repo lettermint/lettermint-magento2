@@ -15,7 +15,9 @@ use Lettermint\Email\Model\Transport;
 use Lettermint\Email\Model\TransportFactory;
 use Lettermint\Email\Plugin\TransportSwitcher;
 use Lettermint\Email\Service\EmailContentExtractor;
+use Lettermint\Email\Service\EmailHeaderExtractor;
 use Lettermint\Email\Test\Unit\ArrayLogger;
+use Lettermint\Email\Test\Unit\MagentoMessages;
 use Lettermint\Exceptions\LettermintException;
 use Lettermint\Exceptions\ValidationException;
 use Lettermint\Lettermint;
@@ -24,6 +26,8 @@ use Magento\Framework\Encryption\EncryptorInterface;
 use Magento\Framework\Exception\MailException;
 use Magento\Framework\Mail\Address;
 use Magento\Framework\Mail\EmailMessageInterface;
+use Magento\Framework\Mail\MimeInterface;
+use Magento\Framework\Mail\MimePart;
 use Magento\Framework\Mail\TransportInterfaceFactory;
 use Magento\Framework\ObjectManagerInterface;
 use PHPUnit\Framework\TestCase;
@@ -33,6 +37,8 @@ use PHPUnit\Framework\TestCase;
  */
 final class TransportTest extends TestCase
 {
+    use MagentoMessages;
+
     private const TOKEN = 'lm_secretTestToken123';
 
     /** @var list<array{request: \Psr\Http\Message\RequestInterface, options: array<string, mixed>}> */
@@ -201,6 +207,70 @@ final class TransportTest extends TestCase
         }
     }
 
+    public function testAttachmentsAndCustomHeadersAreSent(): void
+    {
+        $this->mock->append($this->accepted('m1'));
+        $pdf = "%PDF-1.4\n\x00binary";
+
+        if (self::usesLaminasMime()) {
+            // Magento 2.4.6 and 2.4.7: a module adds a Magento MimePart.
+            $message = $this->magentoMessage([
+                new MimePart('<p>Your invoice</p>'),
+                new MimePart(
+                    $pdf,
+                    'application/pdf',
+                    'invoice.pdf',
+                    MimeInterface::DISPOSITION_ATTACHMENT,
+                    MimeInterface::ENCODING_BASE64
+                ),
+            ], 'Invoice #1');
+            $expectedType = 'application/pdf; charset=utf-8';
+        } else {
+            // Magento 2.4.8+: a module replaces the Symfony body.
+            $message = $this->symfonyMessage(new \Symfony\Component\Mime\Part\Multipart\MixedPart(
+                new \Symfony\Component\Mime\Part\TextPart('<p>Your invoice</p>', 'utf-8', 'html'),
+                new \Symfony\Component\Mime\Part\DataPart($pdf, 'invoice.pdf', 'application/pdf')
+            ));
+            $message->getSymfonyMessage()->getHeaders()->addTextHeader('X-Order-Id', '000000123');
+            $expectedType = 'application/pdf';
+        }
+
+        $transport = $this->transport();
+        $transport->setMessage($message);
+        $transport->sendMessage();
+
+        $body = $this->requestBody(0);
+        $this->assertSame('Example Shop <shop@example.com>', $body['from']);
+        $this->assertSame(['jane@example.com'], $body['to']);
+        $this->assertSame('<p>Your invoice</p>', $body['html']);
+        $this->assertSame([
+            ['filename' => 'invoice.pdf', 'content' => base64_encode($pdf), 'content_type' => $expectedType],
+        ], $body['attachments']);
+        if (self::usesLaminasMime()) {
+            $this->assertArrayNotHasKey('headers', $body);
+        } else {
+            $this->assertSame(['X-Order-Id' => '000000123'], $body['headers']);
+        }
+    }
+
+    public function testErrorWhileReadingTheMessageBecomesMailException(): void
+    {
+        $extractor = $this->createMock(EmailContentExtractor::class);
+        $extractor->method('extractContent')->willThrowException(new \Error('Object could not be converted to string'));
+        $transport = $this->transport($extractor);
+        $transport->setMessage($this->message(['jane@example.com'], 'Hi', '<p>Hi</p>'));
+
+        try {
+            $transport->sendMessage();
+            $this->fail('Expected a MailException.');
+        } catch (MailException $e) {
+            $this->assertStringContainsString('Object could not be converted to string', $e->getMessage());
+            $this->assertInstanceOf(\Error::class, $e->getPrevious()?->getPrevious());
+        }
+        $this->assertCount(0, $this->history);
+        $this->assertSame('error', $this->logger->records[0]['level']);
+    }
+
     public function testRealClientFactoryUsesSendingTokenAndTimeout(): void
     {
         $client = (new LettermintClientFactory())->create(self::TOKEN);
@@ -212,7 +282,7 @@ final class TransportTest extends TestCase
         $this->assertStringNotContainsString(self::TOKEN, json_encode($info) . print_r($client, true));
     }
 
-    private function transport(): Transport
+    private function transport(?EmailContentExtractor $extractor = null): Transport
     {
         $scope = $this->createMock(ScopeConfigInterface::class);
         $scope->method('isSetFlag')->willReturnCallback(fn (string $path) => (bool)($this->config[$path] ?? false));
@@ -220,7 +290,14 @@ final class TransportTest extends TestCase
         $encryptor = $this->createMock(EncryptorInterface::class);
         $encryptor->method('decrypt')->willReturn(self::TOKEN);
 
-        return new Transport($scope, $this->logger, $encryptor, new EmailContentExtractor(), $this->clientFactory());
+        return new Transport(
+            $scope,
+            $this->logger,
+            $encryptor,
+            $extractor ?? new EmailContentExtractor($this->logger),
+            $this->clientFactory(),
+            new EmailHeaderExtractor()
+        );
     }
 
     private function clientFactory(): LettermintClientFactory
