@@ -3,7 +3,9 @@ declare(strict_types=1);
 
 namespace Lettermint\Email\Model;
 
+use Lettermint\Attachment;
 use Lettermint\Email\Service\EmailContentExtractor;
+use Lettermint\Email\Service\EmailHeaderExtractor;
 use Lettermint\Exceptions\ApiException;
 use Lettermint\Exceptions\RateLimitException;
 use Lettermint\Exceptions\TimeoutException;
@@ -31,7 +33,8 @@ class Transport implements TransportInterface
         private LoggerInterface         $logger,
         private EncryptorInterface      $encryptor,
         private EmailContentExtractor   $contentExtractor,
-        private LettermintClientFactory $clientFactory
+        private LettermintClientFactory $clientFactory,
+        private EmailHeaderExtractor    $headerExtractor
     )
     {
     }
@@ -79,9 +82,14 @@ class Transport implements TransportInterface
                 'message_id' => $response->message_id,
                 'status' => $response->status,
             ]);
-        } catch (\Exception $e) {
+        } catch (\Throwable $e) {
+            // Any failure, including an error while reading the Magento message,
+            // reaches Magento as a MailException.
             $this->logger->error('Failed to send email via Lettermint: ' . $e->getMessage(), $this->errorContext($e));
-            throw new MailException(__('Failed to send email: %1', $e->getMessage()), $e);
+            throw new MailException(
+                __('Failed to send email: %1', $e->getMessage()),
+                $e instanceof \Exception ? $e : new \RuntimeException($e->getMessage(), 0, $e)
+            );
         }
     }
 
@@ -133,6 +141,17 @@ class Transport implements TransportInterface
         if ($content['text']) {
             $payload['text'] = $content['text'];
         }
+        if ($content['attachments']) {
+            $payload['attachments'] = array_map(
+                static fn (Attachment $attachment): array => $attachment->toArray(),
+                $content['attachments']
+            );
+        }
+
+        $headers = $this->headerExtractor->extractHeaders($message);
+        if ($headers) {
+            $payload['headers'] = $headers;
+        }
 
         if ($route) {
             $payload['route'] = $route;
@@ -171,7 +190,7 @@ class Transport implements TransportInterface
      *
      * @return array<string, mixed>
      */
-    private function errorContext(\Exception $e): array
+    private function errorContext(\Throwable $e): array
     {
         $context = ['exception' => $e];
 

@@ -67,7 +67,20 @@ When the module is enabled, a plugin on Magento's transport factory gives every 
 Magento email → TransportSwitcher plugin → Lettermint transport → Lettermint API (route)
 ```
 
-If Lettermint rejects an email or cannot be reached within 15 seconds, the error is logged to Magento's log and Magento receives a `MailException`. The module does not retry.
+### Attachments and headers
+
+Attachments are sent to Lettermint with the email, on every supported Magento version:
+
+- Magento 2.4.6 and 2.4.7: attachment parts on the Laminas MIME message (Magento `MimePart` or Laminas `Part`), including nested `multipart/alternative` bodies.
+- Magento 2.4.8 and newer: the Symfony MIME body, for example `multipart/mixed` with a `multipart/alternative` body and `DataPart` attachments.
+
+Inline images keep their Content-ID, so `cid:` references in the HTML keep working. An attachment without a file name is sent as `attachment-<n>` with an extension for common types. Lettermint's [attachment limits](https://docs.lettermint.co/platform/emails/limitations) apply (25 MB per email, blocked file types).
+
+Custom headers are forwarded: `X-*` headers and `List-*`, `Precedence`, `Auto-Submitted`, `Importance` and `Priority`. Lettermint sets the structural headers (From, To, Subject, Date, Message-ID, MIME and Content headers) itself. Lettermint's own control headers (`X-Lettermint-*`, `X-LM-*`) and headers whose name looks like a credential (for example containing `auth`, `token`, `secret` or `api-key`) are never forwarded.
+
+### Errors
+
+If Lettermint rejects an email, cannot be reached within 15 seconds, or the email cannot be read, the error is logged to Magento's log and Magento receives a `MailException`. The module does not retry.
 
 ## Security
 
