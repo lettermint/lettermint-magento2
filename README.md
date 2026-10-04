@@ -76,6 +76,19 @@ If Lettermint rejects an email or cannot be reached within 15 seconds, the error
 - Secure API communication via HTTPS
 - API tokens are never logged
 
+## Development
+
+The unit tests install `magento/framework` from the public [Mage-OS mirror](https://mirror.mage-os.org/), so no Magento Marketplace credentials are needed. They never call the Lettermint API.
+
+```bash
+composer update --ignore-platform-req='ext-*'
+composer lint      # php -l on every PHP file
+composer test      # PHPUnit
+composer analyse   # PHPStan
+```
+
+To test against a specific Magento line, constrain the framework version, for example `composer update --ignore-platform-req='ext-*' --with 'magento/framework:103.0.6.*'` for Magento 2.4.6. CI runs Magento 2.4.6 to 2.4.9 on PHP 8.2 to 8.5.
+
 ## License
 
 The MIT License (MIT). Please see [License File](LICENSE.md) for more information.

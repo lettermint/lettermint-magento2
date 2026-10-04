@@ -1,0 +1,20 @@
+includes:
+    - phpstan-baseline.neon
+
+parameters:
+    level: 5
+    paths:
+        - Model
+        - Plugin
+        - Service
+        - Test
+    bootstrapFiles:
+        - Test/Unit/bootstrap.php
+    tmpDir: .phpstan
+    ignoreErrors:
+        # CI analyses against the latest Magento. Magento 2.4.7 and older use
+        # Laminas MIME instead of Symfony MIME, and the tests build both.
+        -
+            identifier: class.notFound
+            message: '#Laminas\\Mime\\#'
+            path: Test/*

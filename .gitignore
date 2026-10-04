@@ -150,3 +150,9 @@ Icon
 Network Trash Folder
 Temporary Items
 .apdisk
+
+# Development
+composer.lock
+.phpunit.cache/
+.phpunit.result.cache
+.phpstan/
