@@ -4,9 +4,10 @@ declare(strict_types=1);
 namespace Lettermint\Email\Plugin;
 
 use Magento\Framework\App\Config\ScopeConfigInterface;
+use Magento\Framework\Mail\EmailMessageInterface;
 use Magento\Framework\Mail\TransportInterfaceFactory;
 use Magento\Store\Model\ScopeInterface;
-use Lettermint\Email\Model\Transport;
+use Lettermint\Email\Model\TransportFactory;
 use Psr\Log\LoggerInterface;
 
 /**
@@ -20,7 +21,7 @@ class TransportSwitcher
     public function __construct(
         private ScopeConfigInterface $scopeConfig,
         private LoggerInterface      $logger,
-        private Transport            $lettermintTransport
+        private TransportFactory     $transportFactory
     )
     {
     }
@@ -42,10 +43,10 @@ class TransportSwitcher
 
         $message = $data['message'] ?? null;
 
-        if ($message) {
-            // Use Lettermint transport for all emails when enabled
-            $this->lettermintTransport->setMessage($message);
-            return $this->lettermintTransport;
+        if ($message instanceof EmailMessageInterface) {
+            // Use a new Lettermint transport per email, so transports created
+            // before they are sent never share a message.
+            return $this->transportFactory->create($message);
         }
 
         // Fallback to default transport

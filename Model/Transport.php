@@ -4,10 +4,14 @@ declare(strict_types=1);
 namespace Lettermint\Email\Model;
 
 use Lettermint\Email\Service\EmailContentExtractor;
-use Lettermint\Lettermint;
+use Lettermint\Exceptions\ApiException;
+use Lettermint\Exceptions\RateLimitException;
+use Lettermint\Exceptions\TimeoutException;
+use Lettermint\Exceptions\ValidationException;
 use Magento\Framework\App\Config\ScopeConfigInterface;
 use Magento\Framework\Encryption\EncryptorInterface;
 use Magento\Framework\Exception\MailException;
+use Magento\Framework\Mail\Address;
 use Magento\Framework\Mail\EmailMessageInterface;
 use Magento\Framework\Mail\TransportInterface;
 use Magento\Store\Model\ScopeInterface;
@@ -23,10 +27,11 @@ class Transport implements TransportInterface
     private ?EmailMessageInterface $message = null;
 
     public function __construct(
-        private ScopeConfigInterface  $scopeConfig,
-        private LoggerInterface       $logger,
-        private EncryptorInterface    $encryptor,
-        private EmailContentExtractor $contentExtractor
+        private ScopeConfigInterface    $scopeConfig,
+        private LoggerInterface         $logger,
+        private EncryptorInterface      $encryptor,
+        private EmailContentExtractor   $contentExtractor,
+        private LettermintClientFactory $clientFactory
     )
     {
     }
@@ -46,7 +51,8 @@ class Transport implements TransportInterface
 
     public function sendMessage(): void
     {
-        
+        $message = $this->getMessage();
+
         if (!$this->isEnabled()) {
             $this->logger->warning('Lettermint email transport is not enabled');
             throw new MailException(__('Lettermint email transport is not enabled.'));
@@ -59,107 +65,131 @@ class Transport implements TransportInterface
         }
 
         try {
-            $lettermint = new Lettermint($apiToken);
-            $email = $lettermint->email;
-
-            // Handle from address - Magento manages sender configuration
-            $from = $this->message->getFrom();
-            if ($from) {
-                // Handle Magento\Framework\Mail\Address object
-                if ($from instanceof \Magento\Framework\Mail\Address) {
-                    $fromString = $from->getName() ? $from->getName() . ' <' . $from->getEmail() . '>' : $from->getEmail();
-                } elseif (is_array($from)) {
-                    $firstFrom = reset($from);
-                    $fromString = $firstFrom instanceof \Magento\Framework\Mail\Address
-                        ? ($firstFrom->getName() ? $firstFrom->getName() . ' <' . $firstFrom->getEmail() . '>' : $firstFrom->getEmail())
-                        : $firstFrom;
-                } else {
-                    $fromString = (string)$from;
-                }
-                $email->from($fromString);
-            }
-
-            $to = $this->message->getTo();
-            if ($to) {
-                $toEmails = [];
-                foreach ($to as $address) {
-                    if ($address instanceof \Magento\Framework\Mail\Address) {
-                        $toEmails[] = $address->getEmail();
-                    } else {
-                        $toEmails[] = (string)$address;
-                    }
-                }
-                $email->to(...$toEmails);
-            }
-
-            $cc = $this->message->getCc();
-            if ($cc) {
-                $ccEmails = [];
-                foreach ($cc as $address) {
-                    if ($address instanceof \Magento\Framework\Mail\Address) {
-                        $ccEmails[] = $address->getEmail();
-                    } else {
-                        $ccEmails[] = (string)$address;
-                    }
-                }
-                $email->cc(...$ccEmails);
-            }
-
-            $bcc = $this->message->getBcc();
-            if ($bcc) {
-                $bccEmails = [];
-                foreach ($bcc as $address) {
-                    if ($address instanceof \Magento\Framework\Mail\Address) {
-                        $bccEmails[] = $address->getEmail();
-                    } else {
-                        $bccEmails[] = (string)$address;
-                    }
-                }
-                $email->bcc(...$bccEmails);
-            }
-
-            $replyTo = $this->message->getReplyTo();
-            if ($replyTo) {
-                if ($replyTo instanceof \Magento\Framework\Mail\Address) {
-                    $email->replyTo($replyTo->getEmail());
-                } else {
-                    $email->replyTo((string)$replyTo);
-                }
-            }
-
-            $subject = $this->message->getSubject();
-            if ($subject) {
-                $email->subject($subject);
-            }
-
-            // Extract email content using shared service
-            $content = $this->contentExtractor->extractContent($this->message);
-
-            // Set content without tampering
-            if ($content['html']) {
-                $email->html($content['html']);
-            }
-            if ($content['text']) {
-                $email->text($content['text']);
-            }
-
-            // Determine which route to use based on email type
+            // Determine which route to use based on email type. Resolved here,
+            // as the newsletter detection inspects the caller backtrace.
             $route = $this->isNewsletterEmail() ? $this->getNewsletterRoute() : $this->getTransactionalRoute();
-            if ($route) {
-                $email->route($route);
-            }
 
-            $response = $email->send();
+            // Build a new payload for every email. The SDK client keeps no
+            // message state, so nothing carries over to the next email.
+            $payload = $this->buildPayload($message, $route);
 
-            if (!$response) {
-                throw new MailException(__('Failed to send email via Lettermint.'));
-            }
-        } catch (\Exception $e) {
-            $this->logger->error('Failed to send email via Lettermint: ' . $e->getMessage(), [
-                'exception' => $e
+            $response = $this->clientFactory->create($apiToken)->emails->send($payload);
+
+            $this->logger->debug('Lettermint accepted the email', [
+                'message_id' => $response->message_id,
+                'status' => $response->status,
             ]);
+        } catch (\Exception $e) {
+            $this->logger->error('Failed to send email via Lettermint: ' . $e->getMessage(), $this->errorContext($e));
             throw new MailException(__('Failed to send email: %1', $e->getMessage()), $e);
         }
+    }
+
+    /**
+     * Maps the Magento message to a Lettermint send request in the API's format.
+     *
+     * @return array<string, mixed>
+     */
+    private function buildPayload(EmailMessageInterface $message, ?string $route): array
+    {
+        $payload = [];
+
+        // Magento manages the sender configuration; keep the sender name.
+        $from = $message->getFrom();
+        if ($from) {
+            $payload['from'] = $this->formatSender(reset($from));
+        }
+
+        $to = $this->emailAddresses($message->getTo());
+        if ($to) {
+            $payload['to'] = $to;
+        }
+
+        $cc = $this->emailAddresses($message->getCc());
+        if ($cc) {
+            $payload['cc'] = $cc;
+        }
+
+        $bcc = $this->emailAddresses($message->getBcc());
+        if ($bcc) {
+            $payload['bcc'] = $bcc;
+        }
+
+        $replyTo = $this->emailAddresses($message->getReplyTo());
+        if ($replyTo) {
+            $payload['reply_to'] = $replyTo;
+        }
+
+        $subject = $message->getSubject();
+        if ($subject) {
+            $payload['subject'] = $subject;
+        }
+
+        // Extract email content using shared service, without tampering
+        $content = $this->contentExtractor->extractContent($message);
+        if ($content['html']) {
+            $payload['html'] = $content['html'];
+        }
+        if ($content['text']) {
+            $payload['text'] = $content['text'];
+        }
+
+        if ($route) {
+            $payload['route'] = $route;
+        }
+
+        return $payload;
+    }
+
+    private function formatSender(mixed $address): string
+    {
+        if ($address instanceof Address) {
+            return $address->getName()
+                ? $address->getName() . ' <' . $address->getEmail() . '>'
+                : (string)$address->getEmail();
+        }
+
+        return (string)$address;
+    }
+
+    /**
+     * @param array<mixed>|null $addresses
+     * @return list<string>
+     */
+    private function emailAddresses(?array $addresses): array
+    {
+        $emails = [];
+        foreach ($addresses ?? [] as $address) {
+            $emails[] = $address instanceof Address ? (string)$address->getEmail() : (string)$address;
+        }
+
+        return $emails;
+    }
+
+    /**
+     * Log context for a failed send. SDK exceptions never contain the API token.
+     *
+     * @return array<string, mixed>
+     */
+    private function errorContext(\Exception $e): array
+    {
+        $context = ['exception' => $e];
+
+        if ($e instanceof ApiException) {
+            $context['status'] = $e->status;
+            $context['error_code'] = $e->errorCode;
+        }
+        if ($e instanceof ValidationException) {
+            $context['errors'] = $e->errors;
+        }
+        if ($e instanceof RateLimitException) {
+            $context['retry_after'] = $e->retryAfter;
+        }
+        if ($e instanceof TimeoutException) {
+            $context['timeout'] = $e->timeout;
+        }
+
+        return $context;
     }
 
     private function isEnabled(): bool
@@ -182,7 +212,7 @@ class Transport implements TransportInterface
         }
 
         try {
-            return $this->encryptor->decrypt($encryptedToken);
+            return trim($this->encryptor->decrypt($encryptedToken)) ?: null;
         } catch (\Exception $e) {
             $this->logger->error('Failed to decrypt Lettermint API token: ' . $e->getMessage());
             return null;
